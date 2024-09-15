@@ -128,6 +128,21 @@ def display_results_table(results):
     # Clear previous output and display the updated table
     print("\033c", end="")  # Clear terminal
     print(table)
+    return table
+
+def save_results_to_file(results_table, filename="results.txt"):
+    try:
+        # Get the current script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(script_dir, filename)
+
+        # Write the results to the file
+        with open(file_path, "w") as file:
+            file.write(results_table)
+
+        print(f"Results saved to {file_path}")
+    except Exception as e:
+        print(f"Failed to save results to file: {e}")
 
 
 # Main function to iterate over WireGuard configs and benchmark them
@@ -180,7 +195,8 @@ def main(config_folder, country_codes, verbose=False):
 
     # Final results table
     print("\nFinal Benchmark Results:")
-    display_results_table(results)
+    final_table = display_results_table(results)
+    save_results_to_file(final_table)
 
 
 if __name__ == "__main__":
