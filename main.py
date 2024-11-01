@@ -2,9 +2,19 @@ import subprocess
 import os
 import time
 import re
+
+import requests
+import requests.exceptions
 import speedtest
 import argparse
 from tabulate import tabulate
+
+TIMEOUT = 1
+
+WEBSITES_TO_CHECK = [
+    # used by vscodium extensions store
+    "https://open-vsx.org",
+]
 
 
 class WireGuardManager:
@@ -45,6 +55,20 @@ class WireGuardManager:
             print(f"Deactivated WireGuard config: {self.config_path}")
         except subprocess.CalledProcessError:
             print(f"Failed to deactivate WireGuard (maybe no active connection).")
+
+
+def is_website_accessible(website_url, verbose=False) -> bool:
+    try:
+        response = requests.get(website_url, timeout=TIMEOUT)
+        if response.status_code == 200:
+            if verbose:
+                print(f"Access to {website_url} is successful")
+            return True
+        else:
+            print(f"Access to {website_url} failed with status code {response.status_code}.")
+    except requests.exceptions.RequestException as e:
+        print(f"Error accessing {website_url}: {e}")
+    return False
 
 
 # Function to test ping latency
@@ -96,6 +120,13 @@ def benchmark_config(config_path, verbose=False):
         # Test latency
         latency = test_latency()
 
+        # Test websites that usually block
+        blocked_websites = []
+        for website in WEBSITES_TO_CHECK:
+            access_ok = is_website_accessible(website)
+            if not access_ok:
+                blocked_websites.append(website)
+
         # Test speed
         download_speed, upload_speed = test_speed()
 
@@ -103,7 +134,8 @@ def benchmark_config(config_path, verbose=False):
         'config': config_path,
         'latency': latency,
         'download_speed': download_speed,
-        'upload_speed': upload_speed
+        'upload_speed': upload_speed,
+        'blocked_websites': blocked_websites
     }
 
 
@@ -116,19 +148,21 @@ def display_results_table(results):
             os.path.basename(result['config']),
             result['latency'],
             result['download_speed'],
-            result['upload_speed']
+            result['upload_speed'],
+            ', '.join(result['blocked_websites'])
         ])
 
     # Print the table using tabulate
     table = tabulate(
         table_data,
-        headers=['Config', 'Latency (ms)', 'Download Speed (Mbps)', 'Upload Speed (Mbps)'],
+        headers=['Config', 'Latency (ms)', 'Download Speed (Mbps)', 'Upload Speed (Mbps)', 'Blocked Websites'],
         tablefmt='grid'
     )
     # Clear previous output and display the updated table
     print("\033c", end="")  # Clear terminal
     print(table)
     return table
+
 
 def save_results_to_file(results_table, filename="results.txt"):
     try:
@@ -173,11 +207,11 @@ def main(config_folder, country_codes, verbose=False):
             result = benchmark_config(config_path, verbose=verbose)
             if result:
                 results.append(result)
+                # Sort results by download speed (descending), then latency (ascending)
+                results.sort(key=lambda x: (-x.get('download_speed', -1), x.get('latency', 1_000_000)))
                 display_results_table(results)  # Display the table after each benchmark
                 time.sleep(5)  # Wait a bit before testing the next config
 
-        # Sort results by download speed (descending), then latency (ascending)
-        results.sort(key=lambda x: (-x['download_speed'], x['latency']))
 
     except KeyboardInterrupt:
         print("\nBenchmarking interrupted by user.")
@@ -208,6 +242,10 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action='store_true', help="Enable verbose output for WireGuard commands")
 
     args = parser.parse_args()
+    country_codes = args.country_codes
+    if not country_codes or (len(country_codes) == 1 and country_codes[0] == "*"):
+        country_codes = [f.split('-')[0] for f in os.listdir(args.config_folder) if f.endswith('.conf')]
+        country_codes = list(set(country_codes))
 
     # Run the benchmark with the provided folder and country codes
-    main(args.config_folder, args.country_codes, verbose=args.verbose)
+    main(args.config_folder, country_codes, verbose=args.verbose)
